@@ -95,7 +95,8 @@ public class AudioEncoder implements GetMicrophoneData {
   }
 
   public void start() {
-    presentTimeUs = System.nanoTime() / 1000;
+    //presentTimeUs = System.nanoTime() / 1000;
+    presentTimeUs = 0;
     audioEncoder.start();
     running = true;
     Log.i(TAG, "AudioEncoder started");
@@ -145,7 +146,12 @@ public class AudioEncoder implements GetMicrophoneData {
       } else if (outBufferIndex >= 0) {
         //This ByteBuffer is AAC
         ByteBuffer bb = audioEncoder.getOutputBuffer(outBufferIndex);
-        audioInfo.presentationTimeUs = System.nanoTime() / 1000 - presentTimeUs;
+        //audioInfo.presentationTimeUs = System.nanoTime() / 1000 - presentTimeUs;
+        if (presentTimeUs == 0) {
+          presentTimeUs = audioInfo.presentationTimeUs;
+        }
+        //Log.e("TEST", "audioInfo.presentationTimeUs = " + audioInfo.presentationTimeUs);
+        audioInfo.presentationTimeUs -= presentTimeUs;
         getAacData.getAacData(bb, audioInfo);
         audioEncoder.releaseOutputBuffer(outBufferIndex, false);
       } else {

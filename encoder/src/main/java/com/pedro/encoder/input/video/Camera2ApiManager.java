@@ -21,6 +21,7 @@ import android.os.HandlerThread;
 import android.support.annotation.NonNull;
 import android.support.annotation.RequiresApi;
 import android.util.Log;
+import android.util.Range;
 import android.util.Size;
 import android.view.MotionEvent;
 import android.view.Surface;
@@ -131,11 +132,11 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
           try {
             if (surfaceView != null || textureView != null) {
               cameraCaptureSession.setRepeatingBurst(
-                  Arrays.asList(drawSurface(preview), drawSurface(surfaceEncoder)),
+                  Arrays.asList(drawSurface(preview, surfaceEncoder)),
                   faceDetectionEnabled ? cb : null, cameraHandler);
             } else {
               cameraCaptureSession.setRepeatingBurst(
-                  Collections.singletonList(drawSurface(surfaceEncoder)),
+                  Collections.singletonList(drawSurface(surfaceEncoder, null)),
                   faceDetectionEnabled ? cb : null, cameraHandler);
             }
             Log.i(TAG, "Camera configured");
@@ -166,10 +167,59 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
     return surface;
   }
 
-  private CaptureRequest drawSurface(Surface surface) {
+  // Check if a range of +/-1 contains target and range size is 0
+  private Range<Integer> containsAlmostExactValue(Range<Integer>[] ranges, int target)
+  {
+    for (Range<Integer> range: ranges) {
+      if (((range.getLower() - 1) <= target) && ((range.getUpper() + 1) >= target) && (range.getLower() == range.getUpper()))
+        return new Range<Integer>(target,target);
+    }
+    return null;
+  }
+
+  // CFind the smallest range that contains target
+  private Range<Integer> findBestRange(Range<Integer>[] ranges, int target)
+  {
+    Range<Integer> bestRange = new Range<Integer>(0,60);
+    for (Range<Integer> range: ranges) {
+      if (range.contains(target) && (((range.getUpper() - range.getLower()) < (bestRange.getUpper() - bestRange.getLower()))))
+        bestRange = range;
+    }
+    return bestRange;
+  }
+
+  private Range<Integer> findClosestAeFpsRange(int targetFrameRate)
+  {
+    Range<Integer> closestAeFpsRange;
+    Range<Integer>[] aeFpsRanges = cameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
+
+    closestAeFpsRange = containsAlmostExactValue(aeFpsRanges, targetFrameRate);
+    if (closestAeFpsRange == null)
+    {
+      // Find smallest range that contains value
+      closestAeFpsRange = findBestRange(aeFpsRanges, targetFrameRate);
+    }
+
+    return closestAeFpsRange;
+  }
+
+  private CaptureRequest drawSurface(Surface surface1, Surface surface2) {
     try {
       builderInputSurface = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-      builderInputSurface.addTarget(surface);
+      builderInputSurface.addTarget(surface1);
+      if (surface2 != null)
+        builderInputSurface.addTarget(surface2);
+
+      // Set frame duration for fps stabilization
+      builderInputSurface.set(CaptureRequest.SENSOR_FRAME_DURATION, ((long)Math.pow(10,9)) / 30);  // in ns. 30 = framerate
+
+      // Set AE range for fps stabilization
+      Range<Integer> aeFpsRange = findClosestAeFpsRange(30); // 30 = framerate
+      builderInputSurface.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, aeFpsRange);
+      builderInputSurface.set(CaptureRequest.CONTROL_AE_LOCK, true);
+      builderInputSurface.set(CaptureRequest.CONTROL_AE_ANTIBANDING_MODE, CameraMetadata.CONTROL_AE_ANTIBANDING_MODE_60HZ);
+     // builderInputSurface.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
+
       return builderInputSurface.build();
     } catch (CameraAccessException | IllegalStateException e) {
       Log.e(TAG, "Error", e);
@@ -478,11 +528,11 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
       try {
         cameraCaptureSession.stopRepeating();
         if (surfaceView != null || textureView != null) {
-          cameraCaptureSession.setRepeatingBurst(Collections.singletonList(drawSurface(preview)),
+          cameraCaptureSession.setRepeatingBurst(Collections.singletonList(drawSurface(preview, null)),
               null, cameraHandler);
         } else if (surfaceEncoder != null && isOpenGl) {
           cameraCaptureSession.setRepeatingBurst(
-              Collections.singletonList(drawSurface(surfaceEncoder)), null, cameraHandler);
+              Collections.singletonList(drawSurface(surfaceEncoder, null)), null, cameraHandler);
         }
       } catch (Exception e) {
         Log.e(TAG, "Error", e);

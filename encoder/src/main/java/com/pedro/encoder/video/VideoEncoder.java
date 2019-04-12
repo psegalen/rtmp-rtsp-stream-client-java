@@ -234,7 +234,8 @@ public class VideoEncoder implements GetCameraData {
   public void start(boolean resetTs) {
     synchronized (sync) {
       spsPpsSetted = false;
-      if (resetTs) presentTimeUs = System.nanoTime() / 1000;
+     // if (resetTs) presentTimeUs = System.nanoTime() / 1000;
+      presentTimeUs = 0;
       videoEncoder.start();
       //surface to buffer
       if (formatVideoEncoder == FormatVideoEncoder.SURFACE
@@ -353,6 +354,8 @@ public class VideoEncoder implements GetCameraData {
     }
   }
 
+  public long previousTimeUs = 0;
+
   @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
   private void getDataFromSurfaceAPI21() {
     while (!Thread.interrupted()) {
@@ -376,7 +379,12 @@ public class VideoEncoder implements GetCameraData {
               }
             }
           }
-          videoInfo.presentationTimeUs = System.nanoTime() / 1000 - presentTimeUs;
+          if (presentTimeUs == 0) {
+            presentTimeUs = videoInfo.presentationTimeUs;
+          }
+          videoInfo.presentationTimeUs -= presentTimeUs;
+          Log.e("TEST", "Fps is " + (1 /(((float)videoInfo.presentationTimeUs - previousTimeUs) / 1000000)));
+          previousTimeUs = videoInfo.presentationTimeUs;
           getVideoData.getVideoData(bb, videoInfo);
           videoEncoder.releaseOutputBuffer(outBufferIndex, false);
         } else {
